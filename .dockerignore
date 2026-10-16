@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-lambda
+lambda.zip
+.env
+.git
