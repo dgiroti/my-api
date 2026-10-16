@@ -16,7 +16,8 @@ const connectDB = async () => {
         }
         // "await" means: wait here until the connection is finished
         await mongoose_1.default.connect(config_1.MONGO_URI, {
-            serverSelectionTimeoutMS: 5000 // give up after 5 seconds instead of 30
+            serverSelectionTimeoutMS: 5000, // give up after 5 seconds instead of 30
+            family: 4
         });
         console.log('MongoDB connected');
     }

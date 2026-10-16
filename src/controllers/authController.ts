@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { users } from "../data/user";
 import { JWT_SECRET, EXPIRES_IN } from "../config/config";
 import { User } from "../models/User";
+import { sendUserEvent } from '../kafka/producer'; // NEW
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -33,6 +34,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
     const user = await User.create({ name, email, password: hashPassword });
 
+    // NEW: tell Kafka a user registered
+    await sendUserEvent('USER_REGISTERED', user.email, user._id.toString());
+
     res.status(200).json({
       message: "Success",
       user: { id: user.id, name: user.name, email: user.email },
@@ -53,9 +57,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const normalizedEmail = email.toLowerCase();
     const user = await User.findOne({ email: email.toLowerCase() });
 
     if (!user) {
+        // NEW: record failed attempts (useful to spot someone guessing passwords)
+      await sendUserEvent('LOGIN_FAILED', normalizedEmail);
       res.status(401).json({ message: "Invalid email" });
       return;
     }
@@ -66,11 +73,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
+      // NEW
+      await sendUserEvent('LOGIN_FAILED', normalizedEmail, user._id.toString());
       res.status(401).json({ message: "Invalid email or password" });
       return;
     }
 
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1h" });
+
+    // NEW: tell Kafka a user logged in
+    await sendUserEvent('USER_LOGGED_IN', user.email, user._id.toString());
 
     res.json({
       message: "Login Successful",

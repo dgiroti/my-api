@@ -22,3 +22,7 @@ export const EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 
 // NEW: where our MongoDB database lives
 export const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/my_api';
+
+// NEW: Kafka server address(es), e.g. "localhost:9092".
+// Optional on purpose: if it's not set (like on Lambda), we simply skip sending events.
+export const KAFKA_BROKERS = process.env.KAFKA_BROKERS;

@@ -1,6 +1,7 @@
 import app from './app';
 import { PORT } from './config/config';
 import { connectDB } from './config/db';
+import { connectProducer } from './kafka/producer';
 // import authRoutes from './routes/authRoutes';
 
 // const app = express();
@@ -23,14 +24,29 @@ import { connectDB } from './config/db';
 // });
 
 // NEW: connect to MongoDB first, and only then start the server
-connectDB().then(() => {
+// connectDB().then(() => {
+//   app.listen(PORT, () => {
+//     console.log(`app Server running on http://localhost:${PORT}`);
+//   })
+// }).catch((error) => {
+//   console.error('Failed to connect to MongoDB:', error);
+//     process.exit(1); // fine on a laptop: no database means no app
+// })
+
+// Start things in order: database → Kafka → web server
+const start = async (): Promise<void> => {
+  await connectDB();
+  await connectProducer(); // NEW (does nothing if KAFKA_BROKERS isn't set)
+
   app.listen(PORT, () => {
     console.log(`app Server running on http://localhost:${PORT}`);
-  })
-}).catch((error) => {
-  console.error('Failed to connect to MongoDB:', error);
-    process.exit(1); // fine on a laptop: no database means no app
-})
+  });
+};
+
+start().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});
 
 // // Start the server last
 // app.listen(PORT, () => {

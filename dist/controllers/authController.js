@@ -8,6 +8,7 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const config_1 = require("../config/config");
 const User_1 = require("../models/User");
+const producer_1 = require("../kafka/producer"); // NEW
 const register = async (req, res) => {
     try {
         const { name, email, password } = req.body ?? {};
@@ -30,6 +31,8 @@ const register = async (req, res) => {
         }
         const hashPassword = await bcryptjs_1.default.hash(password, 10);
         const user = await User_1.User.create({ name, email, password: hashPassword });
+        // NEW: tell Kafka a user registered
+        await (0, producer_1.sendUserEvent)('USER_REGISTERED', user.email, user._id.toString());
         res.status(200).json({
             message: "Success",
             user: { id: user.id, name: user.name, email: user.email },
@@ -49,8 +52,11 @@ const login = async (req, res) => {
             res.status(400).json({ message: " email and passowrd required" });
             return;
         }
+        const normalizedEmail = email.toLowerCase();
         const user = await User_1.User.findOne({ email: email.toLowerCase() });
         if (!user) {
+            // NEW: record failed attempts (useful to spot someone guessing passwords)
+            await (0, producer_1.sendUserEvent)('LOGIN_FAILED', normalizedEmail);
             res.status(401).json({ message: "Invalid email" });
             return;
         }
@@ -58,10 +64,14 @@ const login = async (req, res) => {
         //    bcrypt hashes the typed password the same way and checks if they match
         const isMatch = await bcryptjs_1.default.compare(password, user.password);
         if (!isMatch) {
+            // NEW
+            await (0, producer_1.sendUserEvent)('LOGIN_FAILED', normalizedEmail, user._id.toString());
             res.status(401).json({ message: "Invalid email or password" });
             return;
         }
         const token = jsonwebtoken_1.default.sign({ id: user._id }, config_1.JWT_SECRET, { expiresIn: "1h" });
+        // NEW: tell Kafka a user logged in
+        await (0, producer_1.sendUserEvent)('USER_LOGGED_IN', user.email, user._id.toString());
         res.json({
             message: "Login Successful",
             token: token,

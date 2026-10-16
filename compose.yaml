@@ -1,4 +1,5 @@
 services:
+
   # ─────────── Container 1: the database ───────────
   mongo:
     image: mongo:8
@@ -13,7 +14,19 @@ services:
       retries: 10
       start_period: 10s
 
-  # ─────────── Container 2: our API ───────────
+       # ─────────── Container 2: Kafka ───────────
+  kafka:
+    image: apache/kafka:3.9.0   # official Apache Kafka image, no extra setup needed
+    network_mode: host          # same workaround as before: listens on localhost:9092
+    # Ask Kafka "are you ready?" by requesting its API versions
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+
+  # ─────────── Container 3: our API ───────────
   api:
     build: .
     # NEW: same network as mongo, so they can talk over 127.0.0.1
@@ -25,8 +38,27 @@ services:
       # CHANGED: mongo is now reachable on this machine's own address
       MONGO_URI: ${MONGO_URI}
       JWT_SECRET: ${JWT_SECRET}
+      KAFKA_BROKERS: localhost:9092 
     depends_on:
       mongo:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy 
+    restart: on-failure
+
+    # ─────────── The audit service (consumer) ───────────
+  audit:
+    build: .                          # same image as the API...
+    network_mode: host
+    # ...but run a different program inside it
+    command: ["node", "dist/consumer/auditService.js"]
+    environment:
+      MONGO_URI: "${MONGO_URI}"
+      # Not used by this service, but our shared config.ts requires it
+      JWT_SECRET: "${JWT_SECRET}"
+      KAFKA_BROKERS: localhost:9092
+    depends_on:
+      kafka:
         condition: service_healthy
     restart: on-failure
 
