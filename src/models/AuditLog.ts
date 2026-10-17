@@ -5,6 +5,7 @@ export interface IAuditLog {
   email: string;
   userId?: string;
   timestamp: Date;
+  source: string; // NEW
 }
 
 const auditLogSchema = new Schema<IAuditLog>({

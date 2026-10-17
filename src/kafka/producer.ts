@@ -1,6 +1,7 @@
 import { Kafka, Partitioners, Producer } from 'kafkajs';
 import { KAFKA_BROKERS } from '../config/config';
 import { USER_EVENTS_TOPIC, UserEvent, UserEventType } from './events';
+import { AuditLog } from '../models/AuditLog'; // NEW (add with the other imports)
 
 // null means "not connected". It stays null on Lambda, where KAFKA_BROKERS isn't set.
 let producer: Producer | null = null;
@@ -24,14 +25,39 @@ export const connectProducer = async (): Promise<void> => {
 }
 
 // Called from the controller whenever something happens
+// export const sendUserEvent = async (
+//   type: UserEventType,
+//   email: string,
+//   userId?: string
+// ): Promise<void> => {
+//     // No Kafka? Quietly do nothing.
+//   if (!producer) return;
+
+//   const event: UserEvent = {
+//     type,
+//     email,
+//     userId,
+//     timestamp: new Date().toISOString(),
+//   };
+
+//   try {
+//     await producer.send({
+//       topic: USER_EVENTS_TOPIC,
+//       // Kafka messages are text, so we turn the object into a JSON string
+//       messages: [{ key: email, value: JSON.stringify(event) }],
+//     });
+//   } catch (error) {
+//     // If Kafka has a problem, log it, but DON'T break the login
+//     console.error('Failed to send user event:', error);
+//   }
+
+// }
+
 export const sendUserEvent = async (
   type: UserEventType,
   email: string,
   userId?: string
 ): Promise<void> => {
-    // No Kafka? Quietly do nothing.
-  if (!producer) return;
-
   const event: UserEvent = {
     type,
     email,
@@ -39,15 +65,30 @@ export const sendUserEvent = async (
     timestamp: new Date().toISOString(),
   };
 
+  // NEW: No Kafka here (e.g. on Lambda)? Save the audit record directly to MongoDB instead.
+  if (!producer) {
+    try {
+      await AuditLog.create({
+        type: event.type,
+        email: event.email,
+        userId: event.userId,
+        timestamp: new Date(event.timestamp),
+        source: 'direct',
+      });
+    } catch (error) {
+      // Same rule as before: auditing must never break a login
+      console.error('Failed to save audit log:', error);
+    }
+    return;
+  }
+
+  // Kafka is available: send the event, and the audit service will save it
   try {
     await producer.send({
       topic: USER_EVENTS_TOPIC,
-      // Kafka messages are text, so we turn the object into a JSON string
       messages: [{ key: email, value: JSON.stringify(event) }],
     });
   } catch (error) {
-    // If Kafka has a problem, log it, but DON'T break the login
     console.error('Failed to send user event:', error);
   }
-
-}
+};

@@ -1,0 +1,10 @@
+# A ConfigMap holds settings that are NOT secret
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-api-config
+data:
+  PORT: "3000"
+  # "kafka" is the name of the Kafka Service (in kafka.yaml).
+  # Inside the cluster, Services are found by name, just like Compose used to do.
+  KAFKA_BROKERS: "kafka:9092"

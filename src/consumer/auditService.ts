@@ -51,6 +51,7 @@ const start = async (): Promise<void> => {
                 email: event.email,
                 userId: event.userId,
                 timestamp: new Date(event.timestamp),
+                source: 'kafka', 
             });
         }
     })

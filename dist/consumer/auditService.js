@@ -43,6 +43,7 @@ const start = async () => {
                 email: event.email,
                 userId: event.userId,
                 timestamp: new Date(event.timestamp),
+                source: 'kafka',
             });
         }
     });

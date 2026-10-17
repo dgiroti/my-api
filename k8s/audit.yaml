@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit
+  template:
+    metadata:
+      labels:
+        app: audit
+    spec:
+      containers:
+        - name: audit
+          image: my-api:v1    # same image as the API...
+          # ...but a different program. In Kubernetes, "args" is what
+          # Compose called "command": it replaces the Dockerfile's CMD.
+          args: ["node", "dist/consumer/auditService.js"]
+          envFrom:
+            - configMapRef:
+                name: my-api-config
+            - secretRef:
+                name: my-api-secrets
