@@ -32,5 +32,9 @@ app.get('/', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
+app.get('/', (req, res) => {
+  res.send('API is running - deployed by CI/CD');
+});
+
 export default app;
 
