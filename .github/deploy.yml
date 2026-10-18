@@ -1,0 +1,110 @@
+name: CI/CD
+
+# WHEN does this pipeline run?
+on:
+  pull_request:          # on every Pull Request into main (checks only)
+    branches: [main]
+  push:                  # on every push/merge into main (checks + deploy)
+    branches: [main]
+  workflow_dispatch:     # adds a "Run workflow" button to run it by hand
+
+# By default, the pipeline can only READ the repository
+permissions:
+  contents: read
+
+jobs:
+  # ═══════════════════ JOB 1: CHECK & BUILD ═══════════════════
+  ci:
+    name: Check & build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Install Node.js 22 (same version as our Lambdas)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install packages exactly as in package-lock.json
+        run: npm ci
+
+      - name: Type-check and compile
+        run: npm run build
+
+      - name: Check production packages for known security problems
+        run: npm audit --omit=dev --audit-level=high
+
+      # ── Automated tests will go here in the testing phase (e.g. "npm test") ──
+
+      - name: Make sure the Lambda bundle builds
+        run: npm run build:lambda
+
+  # ═══════════════════ JOB 2: DEPLOY ═══════════════════
+  deploy:
+    name: Deploy to AWS Lambda
+    needs: ci                        # only start if Job 1 passed
+    # Only deploy from main, never from Pull Requests
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency: production          # never run two deployments at the same time
+    permissions:
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Install Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Log in to AWS (access key from GitHub Secrets)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # ── The zip Lambda ──
+      - name: Deploy zip Lambda
+        run: |
+          npm run build:lambda
+          cd dist-lambda && zip ../lambda.zip index.js && cd ..
+          # "> /dev/null" hides the response, which includes the function's
+          # environment variables (your secrets!) and would otherwise appear in the logs
+          aws lambda update-function-code --function-name "${{ vars.ZIP_FUNCTION_NAME }}" --zip-file fileb://lambda.zip > /dev/null
+          aws lambda wait function-updated --function-name "${{ vars.ZIP_FUNCTION_NAME }}"
+
+      # ── The Docker Lambda ──
+      - name: Build and push Docker image to ECR
+        id: image
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+          # Tag the image with the Git commit ID, so every image traces back to exact code
+          IMAGE=$REGISTRY/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY
+          docker build -f Dockerfile.lambda --platform linux/amd64 --provenance=false -t $IMAGE .
+          docker push $IMAGE
+          # Hand the image address to the next step
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Docker Lambda
+        run: |
+          aws lambda update-function-code --function-name "${{ vars.DOCKER_FUNCTION_NAME }}" --image-uri "${{ steps.image.outputs.uri }}" > /dev/null
+          aws lambda wait function-updated --function-name "${{ vars.DOCKER_FUNCTION_NAME }}"
+
+      # ── Final check: are both APIs answering? ──
+      - name: Smoke test both Lambdas
+        run: |
+          curl --fail --silent --show-error "${{ vars.ZIP_FUNCTION_URL }}/"
+          echo ""
+          curl --fail --silent --show-error "${{ vars.DOCKER_FUNCTION_URL }}/"
