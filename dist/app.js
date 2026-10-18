@@ -28,4 +28,7 @@ app.get('/', (req, res) => {
 // These two must come LAST: they catch whatever the routes above didn't handle
 app.use(errorHandler_1.notFound);
 app.use(errorHandler_1.errorHandler);
+app.get('/', (req, res) => {
+    res.send('API is running - deployed by CI/CD');
+});
 exports.default = app;
