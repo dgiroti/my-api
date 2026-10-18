@@ -9,9 +9,11 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const config_1 = require("../config/config");
 const User_1 = require("../models/User");
 const producer_1 = require("../kafka/producer"); // NEW
+// A fake hash used when an email doesn't exist (explained in login below)
+const DUMMY_HASH = bcryptjs_1.default.hashSync('not-a-real-password', 10);
 const register = async (req, res) => {
     try {
-        const { name, email, password } = req.body ?? {};
+        const { name, email, password } = req.body;
         // 2. All three fields are required
         if (!name || !email || !password) {
             res
@@ -47,7 +49,7 @@ const register = async (req, res) => {
 exports.register = register;
 const login = async (req, res) => {
     try {
-        const { email, password } = req.body ?? {};
+        const { email, password } = req.body;
         if (!email || !password) {
             res.status(400).json({ message: " email and passowrd required" });
             return;
@@ -62,7 +64,11 @@ const login = async (req, res) => {
         }
         // 3. Compare the typed password with the hashed one in the database
         //    bcrypt hashes the typed password the same way and checks if they match
-        const isMatch = await bcryptjs_1.default.compare(password, user.password);
+        // 2. Use the real hash if the user exists, otherwise the dummy hash
+        const hashToCheck = user ? user.password : DUMMY_HASH;
+        // 3. Always run the comparison, so the timing is the same either way
+        const isMatch = await bcryptjs_1.default.compare(password, hashToCheck);
+        // const isMatch = await bcrypt.compare(password, user.password, DUMMY_HASH);
         if (!isMatch) {
             // NEW
             await (0, producer_1.sendUserEvent)('LOGIN_FAILED', normalizedEmail, user._id.toString());
